@@ -1,4 +1,5 @@
 streamlit
+streamlit-js_eval
 langchain
 langgraph
 langchain-openai
