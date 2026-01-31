@@ -4,10 +4,9 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 class FarmerInput(BaseModel):
     soil_type: Literal['loamy', 'clay', 'sandy', 'silty', 'peaty', 'chalky', 'unknown']
     crop: Annotated[str, Field(min_length=2)]
-    reported_action: Annotated[str, Field(min_length=5)]
+    reported_action: Annotated[str, Field(min_length=5)]   #Description of the issue or action taken
     location: Annotated[str, Field(min_length=2)]
-
-
+    
 class ExtractedKeywords(BaseModel):
     pests: Annotated[List[str], Field(default=[])]
     symptoms: Annotated[List[str], Field(default=[])]
@@ -23,15 +22,13 @@ class ExtractedKeywords(BaseModel):
             v = list(v) if hasattr(v, '__iter__') else [v]
         v = [item.strip().lower() for item in v if isinstance(item, str) and item.strip()]
         return v
-    
+
     @model_validator(mode='after')
     def check_keywords_not_empty(self):
         """Warn if no keywords were extracted, but don't fail."""
         if not self.pests and not self.symptoms:
             pass
         return self
-
-
 class ValidationResult(BaseModel):
     is_valid: bool
     error_message: str = ""
@@ -49,15 +46,20 @@ class ValidationResult(BaseModel):
                 "is_valid=False but error_message is empty"
             )
         return self
-
-
 class SoilData(BaseModel):
-    ph: Annotated[Optional[float], Field(ge=0, le=14)] = None
-    moisture: Annotated[Optional[float], Field(ge=0, le=100)] = None
+    soil_type: Optional[str] = None
+    soil_ph: Annotated[Optional[float], Field(ge=0, le=14)] = None
+    soil_moisture: Annotated[Optional[float], Field(ge=0, le=100)] = None
     nitrogen: Annotated[Optional[float], Field(ge=0)] = None
     phosphorus: Annotated[Optional[float], Field(ge=0)] = None
     potassium: Annotated[Optional[float], Field(ge=0)] = None
 
+
+class WeatherData(BaseModel):
+    temperature_c: float
+    humidity: Annotated[int, Field(ge=0, le=100)]
+    rainfall_mm: Optional[float] = None
+    weather_alert: Optional[str] = None
 
 class AgriAdvice(BaseModel):
     recommendations: Annotated[List[str], Field(default=[])]
@@ -82,9 +84,13 @@ class AgentState(TypedDict):
     farmer_input: Optional[FarmerInput]
     extracted_keywords: Optional[ExtractedKeywords]
     validation_result: Optional[ValidationResult]
+    
+    location_coords: Optional[dict]
+    weather_data: Optional[WeatherData]
     soil_data: Optional[SoilData]
-    weather_data: Optional[dict]
+    timestamp: Optional[str]
+    
     advice: Optional[AgriAdvice]
     messages: List[dict]
     processing_errors: List[str]
-    processing_status: str  # 'pending', 'processing', 'completed', 'failed'
+    processing_status: Literal['pending', 'processing', 'completed', 'failed']
