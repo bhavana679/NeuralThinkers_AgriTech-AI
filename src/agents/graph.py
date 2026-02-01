@@ -1,7 +1,7 @@
 from langgraph.graph import StateGraph, END
 from langchain_openai import ChatOpenAI
 
-from src.agents.state import FarmerState
+from src.agents.state import AgentState, FarmerState
 from src.agents.prompts import SYSTEM_PROMPT
 from src.tools.weather_api import get_weather_alert
 from src.tools.soil_service import get_soil_advice
@@ -52,12 +52,6 @@ def build_graph():
     graph.add_node("soil_analysis", soil_node)
     graph.add_node("decision", decision_node)
 
-<<<<<<< Updated upstream
-    graph.set_entry_point("weather_analysis")
-    graph.add_edge("weather_analysis", "soil_analysis")
-    graph.add_edge("soil_analysis", "decision")
-    graph.add_edge("decision", END)
-=======
     graph.set_entry_point("validate_input")
 
     graph.add_edge("validate_input", "extract_keywords")
@@ -72,14 +66,10 @@ def build_graph():
     )
     graph.add_edge("soil_analysis", "generate_advice")
     graph.add_edge("generate_advice", END)
->>>>>>> Stashed changes
 
     return graph.compile(
         checkpointer=get_memory()
     )
-<<<<<<< Updated upstream
-=======
-
 def route_after_weather(state: AgentState) -> str:
     farmer_input = state["farmer_input"]
 
@@ -87,4 +77,3 @@ def route_after_weather(state: AgentState) -> str:
         return "generate_advice"
 
     return "soil_analysis"              
->>>>>>> Stashed changes

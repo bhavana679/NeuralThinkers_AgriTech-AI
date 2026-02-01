@@ -29,6 +29,15 @@ class ExtractedKeywords(BaseModel):
         if not self.pests and not self.symptoms:
             pass
         return self
+
+
+class ExtractionModel(BaseModel):
+    crop: str
+    symptoms: List[str] = Field(default=[])
+    pests: List[str] = Field(default=[])
+    action_taken: str = ""
+    urgency: Literal['low', 'medium', 'high', 'critical'] = 'medium'
+    primary_category: Literal['pest', 'disease', 'nutrient', 'irrigation', 'weather'] = 'pest'
 class ValidationResult(BaseModel):
     is_valid: bool
     error_message: str = ""
