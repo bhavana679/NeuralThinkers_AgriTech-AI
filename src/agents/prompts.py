@@ -8,7 +8,8 @@ load_dotenv()
 from typing import List, Literal, Optional
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate
-from .state import ValidationResult, ExtractionModel
+from .state import ValidationResult, ExtractionModel, WeatherData, SoilData
+from .integration import fetch_and_validate_environment_data, format_environment_for_prompt
 
 
 def retry_on_rate_limit(max_retries=3, initial_wait=2):
@@ -456,3 +457,103 @@ def verify_farmer_claim(
         "proceed_with_advice": True,
         "confidence": 0.5
     }
+
+
+# ========== INTEGRATION LAYER: Member 4 ↔ Member 3 ==========
+
+def get_environmental_data_from_member3(latitude: float, longitude: float) -> dict:
+    """
+    Fetch and validate environmental data from Member 3's tools.
+    
+    This is the connection point between Member 3 (Environment/Tools) 
+    and Member 4 (Prompts/LLM).
+    
+    Args:
+        latitude: GPS latitude
+        longitude: GPS longitude
+        
+    Returns:
+        dict with keys:
+            - weather_data: WeatherData model
+            - soil_data: SoilData model
+            - prompt_vars: dict of prompt template variables
+    """
+    try:
+        # Fetch from Member 3's integration layer
+        env_data = fetch_and_validate_environment_data(latitude, longitude)
+        
+        # Format for prompt templates
+        prompt_vars = format_environment_for_prompt(
+            env_data["weather_data"],
+            env_data["soil_data"]
+        )
+        
+        return {
+            "weather_data": env_data["weather_data"],
+            "soil_data": env_data["soil_data"],
+            "prompt_vars": prompt_vars,
+            "raw_response": env_data.get("raw_response")
+        }
+    except Exception as e:
+        print(f"Error getting environmental data from Member 3: {str(e)}")
+        # Return safe defaults
+        return {
+            "weather_data": WeatherData(temperature_c=None, humidity=0),
+            "soil_data": SoilData(soil_ph=None),
+            "prompt_vars": {},
+            "raw_response": None
+        }
+
+
+def generate_advice_with_environment(
+    farmer_query: str,
+    latitude: float,
+    longitude: float,
+    history: str = "No previous history.",
+    model_name: str = "gemini-3-flash-preview"
+) -> str:
+    """
+    Generate agricultural advice by automatically fetching environmental data 
+    from Member 3's APIs.
+    
+    This is the **recommended way** to call generate_agricultural_advice() because
+    it automatically handles Member 3 integration.
+    
+    Args:
+        farmer_query: The farmer's question/problem
+        latitude: GPS latitude for location
+        longitude: GPS longitude for location
+        history: Historical context from Member 5 (optional)
+        model_name: Gemini model (default: gemini-3-flash-preview)
+        
+    Returns:
+        str: Detailed agricultural advice
+        
+    Example:
+        ```python
+        advice = generate_advice_with_environment(
+            farmer_query="My tomato plants have yellow leaves",
+            latitude=31.5497,
+            longitude=74.3436,
+            history="Previous visit: advised pH adjustment"
+        )
+        ```
+    """
+    # Get environmental data from Member 3
+    env_context = get_environmental_data_from_member3(latitude, longitude)
+    
+    # Extract the validated data
+    weather_data = env_context["weather_data"]
+    soil_data = env_context["soil_data"]
+    
+    # Call the standard advice function with Member 3's data
+    return generate_agricultural_advice(
+        farmer_query=farmer_query,
+        soil_ph=soil_data.soil_ph or 6.5,  # Default to neutral pH
+        soil_moisture=soil_data.soil_moisture or 50,  # Default to moderate moisture
+        rainfall_mm=weather_data.rainfall_mm or 0,  # Default to no rain
+        temperature_c=weather_data.temperature_c or 25,  # Default to 25°C
+        weather_alert=weather_data.weather_alert,
+        history=history,
+        model_name=model_name
+    )
