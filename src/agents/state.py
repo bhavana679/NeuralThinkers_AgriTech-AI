@@ -1,3 +1,7 @@
+import os
+from dotenv import load_dotenv
+load_dotenv()  # Load environment variables from .env
+
 from typing import TypedDict, Annotated, Optional, List, Literal
 from pydantic import BaseModel, Field, field_validator, model_validator
 

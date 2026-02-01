@@ -3,6 +3,7 @@ streamlit-js_eval
 langchain
 langgraph
 langchain-openai
+langchain-google-genai
 python-dotenv
 requests
 pydantic

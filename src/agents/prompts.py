@@ -1,7 +1,59 @@
+import os
+import time
+import functools
+import asyncio
+from dotenv import load_dotenv
+load_dotenv() 
+
 from typing import List, Literal, Optional
-from langchain_openai import ChatOpenAI
+from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate
 from .state import ValidationResult, ExtractionModel
+
+
+def retry_on_rate_limit(max_retries=3, initial_wait=2):
+    """Decorator to retry function calls with exponential backoff on rate limit errors."""
+    def decorator(func):
+        # Check if it's an async function
+        if asyncio.iscoroutinefunction(func):
+            @functools.wraps(func)
+            async def async_wrapper(*args, **kwargs):
+                wait_time = initial_wait
+                for i in range(max_retries):
+                    try:
+                        return await func(*args, **kwargs)
+                    except Exception as e:
+                        if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
+                            if i < max_retries - 1:
+                                print(f"⚠️ Rate limit hit. Retrying in {wait_time}s... (Attempt {i+1}/{max_retries})")
+                                await asyncio.sleep(wait_time)
+                                wait_time *= 2
+                            else:
+                                raise e
+                        else:
+                            raise e
+                return await func(*args, **kwargs)
+            return async_wrapper
+        else:
+            @functools.wraps(func)
+            def sync_wrapper(*args, **kwargs):
+                wait_time = initial_wait
+                for i in range(max_retries):
+                    try:
+                        return func(*args, **kwargs)
+                    except Exception as e:
+                        if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
+                            if i < max_retries - 1:
+                                print(f"⚠️ Rate limit hit. Retrying in {wait_time}s... (Attempt {i+1}/{max_retries})")
+                                time.sleep(wait_time)
+                                wait_time *= 2
+                            else:
+                                raise e
+                        else:
+                            raise e
+                return func(*args, **kwargs)
+            return sync_wrapper
+    return decorator
 
 # System Instructions - Extraction
 
@@ -69,9 +121,10 @@ FEW_SHOT_EXAMPLES = [
 
 
 def format_few_shot_examples() -> str:
-    """Format few-shot examples into a string for the prompt."""
+    """Format few-shot examples into a string for the prompt (with escaped braces for LangChain)."""
+    import json
     examples_text = "\n\n".join([
-        f"Example {i+1}:\nInput: {ex['input']}\nOutput: {ex['output']}"
+        f"Example {i+1}:\nInput: {ex['input']}\nOutput: {json.dumps(ex['output']).replace('{', '{{').replace('}', '}}')}"
         for i, ex in enumerate(FEW_SHOT_EXAMPLES)
     ])
     return f"\n\nHere are examples of correct extractions:\n\n{examples_text}"
@@ -182,9 +235,13 @@ Data: Rain alert shows 100mm expected
 Response: {{"has_conflict": true, ..., "proceed_with_advice": false}}
 """
 
-def create_extraction_chain(model_name: str = "gpt-4o-mini"):
-    """Chain for keyword extraction (GPT-4o-Mini for speed)."""
-    llm = ChatOpenAI(model=model_name, temperature=0).with_structured_output(ExtractionModel)
+def create_extraction_chain(model_name: str = "gemini-3-flash-preview"):
+    """Chain for keyword extraction using Gemini (free quota)."""
+    llm = ChatGoogleGenerativeAI(
+        model=model_name,
+        temperature=0,
+        google_api_key=os.getenv("GEMINI_API_KEY")
+    ).with_structured_output(ExtractionModel)
     prompt = ChatPromptTemplate.from_messages([
         ("system", "Extract agricultural entities into JSON." + format_few_shot_examples()),
         ("human", "Query: {query}")
@@ -192,25 +249,37 @@ def create_extraction_chain(model_name: str = "gpt-4o-mini"):
     return prompt | llm
 
 
-def create_validation_chain(model_name: str = "gpt-4o-mini"):
-    """Validates input. Binds to ValidationResult for workflow branching."""
-    llm = ChatOpenAI(model=model_name, temperature=0).with_structured_output(ValidationResult)
+def create_validation_chain(model_name: str = "gemini-3-flash-preview"):
+    """Validates input using Gemini (free quota). Binds to ValidationResult for workflow branching."""
+    llm = ChatGoogleGenerativeAI(
+        model=model_name,
+        temperature=0,
+        google_api_key=os.getenv("GEMINI_API_KEY")
+    ).with_structured_output(ValidationResult)
     prompt = ChatPromptTemplate.from_template(
         "Validate this farmer query: {query} against env data: Temp {temp}, Rain {rain}."
     )
     return prompt | llm
 
 
-def create_vision_chain(model_name: str = "gemini-1.5-flash"):
+def create_vision_chain(model_name: str = "gemini-3-flash-preview"):
     """Member 4's Photo Model. Resolves Farmer vs API conflicts."""
-    llm = ChatOpenAI(model=model_name, temperature=0.1)
+    llm = ChatGoogleGenerativeAI(
+        model=model_name,
+        temperature=0.1,
+        google_api_key=os.getenv("GEMINI_API_KEY")
+    )
     prompt = ChatPromptTemplate.from_template(VISION_TIE_BREAKER_PROMPT)
     return prompt | llm
 
 
-def create_advice_chain(model_name: str = "gemini-1.5-flash"):
+def create_advice_chain(model_name: str = "gemini-3-flash-preview"):
     """Main Advisory Engine using Gemini for high-level reasoning."""
-    llm = ChatOpenAI(model=model_name, temperature=0.2)
+    llm = ChatGoogleGenerativeAI(
+        model=model_name,
+        temperature=0.2,
+        google_api_key=os.getenv("GEMINI_API_KEY")
+    )
     prompt = ChatPromptTemplate.from_template(ADVICE_GENERATION_SYSTEM_PROMPT)
     return prompt | llm
 
@@ -225,16 +294,21 @@ def create_truth_check_chain(model_name: str = "gpt-4o-mini"):
     Returns:
         Runnable chain that outputs JSON with conflict detection
     """
-    llm = ChatOpenAI(model=model_name, temperature=0)
+    llm = ChatGoogleGenerativeAI(
+        model=model_name,
+        temperature=0,
+        api_key=os.getenv("GEMINI_API_KEY")
+    )
     prompt = ChatPromptTemplate.from_template(TRUTH_CHECK_SYSTEM_PROMPT)
     return prompt | llm
 
-def extract_keywords_from_query_sync(query: str, model_name: str = "gpt-4o-mini") -> ExtractionModel:
+@retry_on_rate_limit(max_retries=3)
+def extract_keywords_from_query_sync(query: str, model_name: str = "gemini-3-flash-preview") -> ExtractionModel:
     """
     Extract structured keywords from a farmer's natural language query.
     Args:
         query: The farmer's input text
-        model_name: OpenAI model to use (default: gpt-4o-mini)   
+        model_name: Gemini model to use (default: gemini-3-flash-preview)   
     Returns:
         ExtractionModel with extracted entities
     """
@@ -243,12 +317,13 @@ def extract_keywords_from_query_sync(query: str, model_name: str = "gpt-4o-mini"
     return result
 
 
-async def extract_keywords_from_query(query: str, model_name: str = "gpt-4o-mini") -> ExtractionModel:
+@retry_on_rate_limit(max_retries=3)
+async def extract_keywords_from_query(query: str, model_name: str = "gemini-3-flash-preview") -> ExtractionModel:
     """
     Async version: Extract structured keywords from a farmer's natural language query.
     Args:
         query: The farmer's input text
-        model_name: OpenAI model to use (default: gpt-4o-mini)
+        model_name: Gemini model to use (default: gemini-3-flash-preview)
     Returns:
         ExtractionModel with extracted entities
     """
@@ -274,6 +349,7 @@ async def get_verified_advice(state: dict):
 
 # Helper Functions - Advisory Engine
 
+@retry_on_rate_limit(max_retries=3)
 def generate_agricultural_advice(
     farmer_query: str,
     soil_ph: float,
@@ -281,7 +357,8 @@ def generate_agricultural_advice(
     rainfall_mm: float,
     temperature_c: float,
     weather_alert: str = None,
-    model_name: str = "gemini-1.5-flash"
+    history: str = "No previous history.",
+    model_name: str = "gemini-3-flash-preview"
 ) -> str:
     """
     Generate agricultural advice grounded in environmental context.
@@ -293,7 +370,8 @@ def generate_agricultural_advice(
         rainfall_mm: Rainfall in last 24 hours
         temperature_c: Current temperature
         weather_alert: Any active weather alerts
-        model_name: LLM to use
+        history: Historical context from Memory Agent (default: empty)
+        model_name: LLM to use (Gemini for better free tier support)
         
     Returns:
         String containing detailed agricultural advice
@@ -305,11 +383,24 @@ def generate_agricultural_advice(
         "soil_moisture": soil_moisture,
         "temperature_c": temperature_c,
         "weather_alert": weather_alert or "None",
-        "advice_request": farmer_query
+        "history": history,
+        "query": farmer_query
     })
-    return result.content if hasattr(result, 'content') else str(result)
+    # Handle different response formats from Gemini
+    if isinstance(result, str):
+        return result
+    elif hasattr(result, 'content'):
+        return result.content
+    elif isinstance(result, dict) and 'text' in result:
+        return result['text']
+    elif isinstance(result, list) and len(result) > 0:
+        if isinstance(result[0], dict) and 'text' in result[0]:
+            return result[0]['text']
+        return str(result[0])
+    return str(result)
 
 
+@retry_on_rate_limit(max_retries=3)
 def verify_farmer_claim(
     farmer_claim: str,
     soil_ph: float,
@@ -317,7 +408,7 @@ def verify_farmer_claim(
     rainfall_mm: float,
     temperature_c: float,
     weather_alert: str = None,
-    model_name: str = "gpt-4o-mini"
+    model_name: str = "gemini-3-flash-preview"
 ) -> dict:
     """
     Verify farmer's claim against environmental data before advice.
