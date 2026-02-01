@@ -30,39 +30,19 @@ def get_api_timeout() -> int:
 
 
 def get_openweather_api_key() -> str:
-    """
-    Get OpenWeatherMap API key from environment variables.
-    
-    Returns:
-        str: API key for OpenWeatherMap
-        
-    Raises:
-        ValueError: If API key is not set
-    """
+    """Get OpenWeatherMap API key or None."""
     api_key = os.environ.get("OPENWEATHER_API_KEY")
     if not api_key:
-        raise ValueError(
-            "OPENWEATHER_API_KEY environment variable is not set. "
-            "Please set it before calling get_environmental_context()"
-        )
+        print("Warning: OPENWEATHER_API_KEY not found. App will use Mock Data.")
+        return None
     return api_key
 
 
 def get_ambee_api_key() -> str:
-    """
-    Get Ambee API key from environment variables.
-    
-    Returns:
-        str: API key for Ambee
-        
-    Raises:
-        ValueError: If API key is not set
-    """
+    """Get Ambee API key or None."""
     api_key = os.environ.get("AMBEE_API_KEY")
     if not api_key:
-        raise ValueError(
-            "AMBEE_API_KEY environment variable is not set. "
-            "Please set it before calling get_environmental_context()"
-        )
+        print("Warning: AMBEE_API_KEY not found. App will use Mock Data.")
+        return None
     return api_key
 
