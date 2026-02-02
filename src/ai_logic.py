@@ -163,12 +163,17 @@ Provide practical, science-backed advice. Be specific and actionable."""
                 temperature_c=context.get('temperature_c', 25.0),
                 weather_alert=context.get('weather_alert', 'None'),
                 history=history,
-                model_name="gemini-1.5-flash"  # Use the newer model with better limits
+                model_name="gemini-1.5-flash-latest"  # Correct model name for free tier
             )
             print(f"  ✓ Gemini Response received ({len(advice)} chars)")
             return advice
         except Exception as e:
-            print(f"  ✗ Gemini FAILED: {str(e)[:100]}")
+            error_msg = str(e)
+            if "RESOURCE_EXHAUSTED" in error_msg or "429" in error_msg:
+                print(f"  ✗ Gemini rate limit hit (20/day limit)")
+                print(f"  → Quota resets in 24 hours")
+            else:
+                print(f"  ✗ Gemini FAILED: {error_msg[:100]}")
             print(f"  → Falling back to Smart Simulator")
     else:
         print("  → Using Smart Simulator (No API keys found)")
