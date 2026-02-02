@@ -89,6 +89,14 @@ def get_chat_response(messages: List[Dict[str, str]], context: Dict[str, Any]) -
     
     user_prompt = messages[-1]["content"] if messages else ""
     
+    print(f"\n{'='*60}")
+    print(f"AI ADVISOR DEBUG:")
+    print(f"  AI_AVAILABLE: {AI_AVAILABLE}")
+    print(f"  OpenAI Key Present: {bool(api_key and 'sk-' in api_key)}")
+    print(f"  Gemini Key Present: {bool(gemini_key)}")
+    print(f"  User Query: {user_prompt[:50]}...")
+    print(f"{'='*60}\n")
+    
     if (AI_AVAILABLE and api_key and "sk-" in api_key) or (gemini_key):
         try:
             # Extract historical context from messages
@@ -97,6 +105,8 @@ def get_chat_response(messages: List[Dict[str, str]], context: Dict[str, Any]) -
                 # Exclude the last message (current prompt)
                 history = "\n".join([f"{m['role']}: {m['content']}" for m in messages[:-1]])
 
+            print("  → Using REAL LLM (Gemini/OpenAI)")
+            
             # Call the agent logic for generating advice
             advice = generate_agricultural_advice(
                 farmer_query=user_prompt,
@@ -107,9 +117,14 @@ def get_chat_response(messages: List[Dict[str, str]], context: Dict[str, Any]) -
                 weather_alert=context.get('weather_alert', 'None'),
                 history=history
             )
+            print(f"  ✓ LLM Response received ({len(advice)} chars)")
             return advice
         except Exception as e:
-            print(f"Agent logic failed, switching to Smart Simulator: {e}")
+            print(f"  ✗ LLM FAILED: {e}")
+            print(f"  → Falling back to Smart Simulator")
 
+    else:
+        print("  → Using Smart Simulator (No API keys found)")
+    
     return get_simulated_chat(user_prompt, context)
 

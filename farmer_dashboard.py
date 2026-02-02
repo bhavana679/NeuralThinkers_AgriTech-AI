@@ -304,6 +304,17 @@ def show_farmer_dashboard():
                         "soil_moisture": soil.get('soil_moisture'),
                         "soil_ph": soil.get('soil_ph')
                     }
+                    
+                    # Check which mode will be used
+                    import os
+                    api_key = os.environ.get("OPENAI_API_KEY", "").strip().strip('"').strip("'")
+                    gemini_key = os.environ.get("GEMINI_API_KEY", "").strip()
+                    
+                    if (api_key and "sk-" in api_key) or gemini_key:
+                        st.caption("🤖 Powered by Gemini AI")
+                    else:
+                        st.caption("🔄 Using Smart Simulator (Add API keys for full AI)")
+                    
                     response = get_chat_response(st.session_state.messages, context)
                     st.markdown(response)
 
