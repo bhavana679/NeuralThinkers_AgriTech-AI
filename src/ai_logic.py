@@ -83,6 +83,7 @@ def get_expert_analysis(weather_data: Dict[str, Any], soil_data: Dict[str, Any])
 def get_chat_response(messages: List[Dict[str, str]], context: Dict[str, Any]) -> str:
     """
     Get chat response using the advanced logic from src.agents.prompts.
+    Priority: OpenAI → Gemini → Smart Simulator
     """
     api_key = os.environ.get("OPENAI_API_KEY", "").strip().strip('"').strip("'")
     gemini_key = os.environ.get("GEMINI_API_KEY", "").strip()
@@ -97,17 +98,63 @@ def get_chat_response(messages: List[Dict[str, str]], context: Dict[str, Any]) -
     print(f"  User Query: {user_prompt[:50]}...")
     print(f"{'='*60}\n")
     
-    if (AI_AVAILABLE and api_key and "sk-" in api_key) or (gemini_key):
+    # Extract historical context from messages
+    history = ""
+    if len(messages) > 1:
+        history = "\n".join([f"{m['role']}: {m['content']}" for m in messages[:-1]])
+    
+    # Try OpenAI first (more generous rate limits)
+    if AI_AVAILABLE and api_key and "sk-" in api_key:
         try:
-            # Extract historical context from messages
-            history = ""
-            if len(messages) > 1:
-                # Exclude the last message (current prompt)
-                history = "\n".join([f"{m['role']}: {m['content']}" for m in messages[:-1]])
-
-            print("  → Using REAL LLM (Gemini/OpenAI)")
+            print("  → Trying OpenAI GPT-4o-mini...")
             
-            # Call the agent logic for generating advice
+            from langchain_openai import ChatOpenAI
+            from langchain_core.prompts import ChatPromptTemplate
+            
+            llm = ChatOpenAI(
+                model="gpt-4o-mini",
+                temperature=0.2,
+                openai_api_key=api_key
+            )
+            
+            prompt_template = """You are a Senior Agronomist providing expert agricultural advice.
+
+FARMER'S QUESTION: {query}
+
+ENVIRONMENTAL CONTEXT:
+- Soil pH: {soil_ph}
+- Soil Moisture: {soil_moisture}%
+- Temperature: {temperature_c}°C
+- Recent Rainfall: {rainfall_mm}mm
+- Weather Alert: {weather_alert}
+- Conversation History: {history}
+
+Provide practical, science-backed advice. Be specific and actionable."""
+
+            prompt = ChatPromptTemplate.from_template(prompt_template)
+            chain = prompt | llm
+            
+            result = chain.invoke({
+                "query": user_prompt,
+                "soil_ph": context.get('ph_level', 7.0),
+                "soil_moisture": context.get('soil_moisture', 50.0),
+                "temperature_c": context.get('temperature_c', 25.0),
+                "rainfall_mm": context.get('rainfall_mm', 0.0),
+                "weather_alert": context.get('weather_alert', 'None'),
+                "history": history or "No previous conversation"
+            })
+            
+            advice = result.content if hasattr(result, 'content') else str(result)
+            print(f"  ✓ OpenAI Response received ({len(advice)} chars)")
+            return advice
+            
+        except Exception as e:
+            print(f"  ✗ OpenAI FAILED: {str(e)[:100]}")
+            print(f"  → Trying Gemini as fallback...")
+    
+    # Try Gemini as fallback
+    if AI_AVAILABLE and gemini_key:
+        try:
             advice = generate_agricultural_advice(
                 farmer_query=user_prompt,
                 soil_ph=context.get('ph_level', 7.0),
@@ -115,16 +162,17 @@ def get_chat_response(messages: List[Dict[str, str]], context: Dict[str, Any]) -
                 rainfall_mm=context.get('rainfall_mm', 0.0),
                 temperature_c=context.get('temperature_c', 25.0),
                 weather_alert=context.get('weather_alert', 'None'),
-                history=history
+                history=history,
+                model_name="gemini-1.5-flash"  # Use the newer model with better limits
             )
-            print(f"  ✓ LLM Response received ({len(advice)} chars)")
+            print(f"  ✓ Gemini Response received ({len(advice)} chars)")
             return advice
         except Exception as e:
-            print(f"  ✗ LLM FAILED: {e}")
+            print(f"  ✗ Gemini FAILED: {str(e)[:100]}")
             print(f"  → Falling back to Smart Simulator")
-
     else:
         print("  → Using Smart Simulator (No API keys found)")
     
     return get_simulated_chat(user_prompt, context)
+
 
