@@ -5,6 +5,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
 from src.ai_logic import get_chat_response
+from streamlit_mic_recorder import speech_to_text
 
 def show_farmer_dashboard():
     st.markdown("""
@@ -87,6 +88,52 @@ def show_farmer_dashboard():
         .badge-yellow { background: rgba(245, 158, 11, 0.1); color: #f59e0b; border: 1px solid #f59e0b; }
         .badge-red { background: rgba(239, 68, 68, 0.1); color: #ef4444; border: 1px solid #ef4444; }
         
+        /* TARGETING THE CHAT INPUT AND POSITIONING MIC INSIDE */
+        [data-testid="stChatInput"] {
+            position: relative;
+            z-index: 1000;
+        }
+
+        .mic-container {
+            position: fixed;
+            bottom: 3.2rem; /* Aligns vertically inside the chat input bar */
+            right: calc(50% - 330px); /* Positioned to the right, inside the bar */
+            z-index: 10001;
+            background: transparent !important;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            pointer-events: auto;
+        }
+        
+        /* Streamlit chat input usually has a max-width of around 700px-730px */
+        @media (max-width: 800px) {
+            .mic-container {
+                right: 60px; /* Fallback for smaller screens */
+            }
+        }
+
+        /* Stylizing the iframe and button */
+        .mic-container iframe {
+            background: transparent !important;
+            border: none !important;
+            height: 40px !important;
+            width: 40px !important;
+        }
+
+        .mic-container button {
+            background: transparent !important;
+            border: none !important;
+            color: #94a3b8 !important;
+            box-shadow: none !important;
+            font-size: 1.5rem !important;
+        }
+
+        /* Prevent text overlap in the chat input */
+        [data-testid="stChatInput"] textarea {
+            padding-right: 90px !important;
+        }
+
         </style>
     """, unsafe_allow_html=True)
 
@@ -285,10 +332,26 @@ def show_farmer_dashboard():
             with st.chat_message(message["role"]):
                 st.markdown(message["content"])
 
-        if prompt := st.chat_input("Ask about irrigation, pests, or fertilizer..."):
-            st.session_state.messages.append({"role": "user", "content": prompt})
+        # --- Voice Input Integration (Positioned via CSS next to Chat Input) ---
+        st.markdown("<div class='mic-container'>", unsafe_allow_html=True)
+        voice_prompt = speech_to_text(
+            language='en', 
+            start_prompt="🎤", 
+            stop_prompt="🛑", 
+            just_once=True, 
+            key='STT_Component'
+        )
+        st.markdown("</div>", unsafe_allow_html=True)
+        
+        text_prompt = st.chat_input("Ask about irrigation, pests, or fertilizer...")
+        
+        # Treat both voice and text inputs as valid prompts
+        final_prompt = text_prompt or voice_prompt
+
+        if final_prompt:
+            st.session_state.messages.append({"role": "user", "content": final_prompt})
             with st.chat_message("user"):
-                st.markdown(prompt)
+                st.markdown(final_prompt)
 
             with st.chat_message("assistant"):
                 with st.spinner("Consulting AI Agronomist..."):
@@ -323,8 +386,8 @@ def show_farmer_dashboard():
                     response = get_chat_response(st.session_state.messages, context)
                     st.markdown(response)
 
-            
             st.session_state.messages.append({"role": "assistant", "content": response})
+            st.rerun() # Ensure UI updates immediately after message exchange
 
 if __name__ == "__main__":
     show_farmer_dashboard()
